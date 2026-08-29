@@ -1262,3 +1262,14 @@ render();
 loadAll();
 loadGoogleStatus();
 checkForUpdates();
+
+// The app is typically left open all day, so don't rely on a relaunch to
+// surface new versions: re-check periodically and whenever the window
+// regains focus (skip re-checking once an update is already showing).
+const UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000;
+setInterval(() => {
+  if (!state.update) checkForUpdates();
+}, UPDATE_CHECK_INTERVAL_MS);
+window.addEventListener('focus', () => {
+  if (!state.update) checkForUpdates();
+});
