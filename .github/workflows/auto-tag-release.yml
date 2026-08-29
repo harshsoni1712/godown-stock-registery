@@ -1,0 +1,43 @@
+name: Auto-tag releases
+
+# Watches main for a version bump (in package.json) and, when it finds one
+# that hasn't been tagged yet, creates and pushes that tag itself. Pushing
+# the tag is what triggers build-windows.yml's real release job (the
+# signed .msi/.exe build + GitHub Release). This exists so that merging a
+# version-bump PR is the only step needed to ship a release — no one has
+# to visit the Releases page and click "Publish" by hand.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from package.json
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and push if this version hasn't shipped yet
+        env:
+          TAG: v${{ steps.version.outputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists — nothing to do."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
