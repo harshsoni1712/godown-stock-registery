@@ -1,0 +1,15 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Rust / Tauri build output
+src-tauri/target/
+src-tauri/gen/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
