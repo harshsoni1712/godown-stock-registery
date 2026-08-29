@@ -54,7 +54,17 @@ const NAV = [
   { key: 'out', label: 'Record out', hi: 'बाहर गया', glyph: '↗', accent: 'oklch(0.63 0.16 40)' },
   { key: 'in', label: 'Record in', hi: 'वापस आया', glyph: '↙', accent: 'oklch(0.58 0.12 163)' },
 ];
-const UNIT_SUGGESTIONS = ['nos', 'sq ft', 'ft', 'kg', 'bundle', 'set'];
+const UNIT_SUGGESTIONS = ['pcs', 'sq ft', 'nos', 'ft', 'kg', 'bundle', 'set'];
+function defaultUnitForCategory(categoryId) {
+  const c = catById(categoryId);
+  return c && c.name === 'Fiber Sheet' ? 'sq ft' : 'pcs';
+}
+function availableFor(itemId) {
+  const it = itemById(itemId);
+  if (!it) return 0;
+  const { out } = computeOutLast();
+  return it.ownedQty - (out[itemId] || 0);
+}
 
 /* ============================== DOM builder ============================== */
 function h(tag, props, children) {
@@ -640,11 +650,7 @@ function buildItemsScreen() {
 function buildEntryForm() {
   const type = state.screen === 'out' ? 'OUT' : 'IN';
   const activeItems = state.items.filter((i) => !i.archived);
-  const { out } = computeOutLast();
-  const avail = (id) => {
-    const it = itemById(id);
-    return it ? it.ownedQty - (out[id] || 0) : 0;
-  };
+  const avail = availableFor;
   const accent = type === 'OUT' ? 'var(--out-accent)' : 'var(--in-accent)';
   const tint = type === 'OUT' ? 'var(--out-tint)' : 'var(--in-tint)';
 
@@ -698,7 +704,7 @@ function buildEntryForm() {
         h('div', { className: 'form-footer' }, [
           h('div', { id: 'quick-summary', className: 'form-summary num' }, quickSummaryText(type, avail)),
           h('div', { className: 'spacer' }),
-          h('button', { className: 'btn-primary', style: { background: accent }, onClick: () => saveQuick(type) }, [type === 'OUT' ? 'Save out entry ' : 'Save in entry ', h('span', { style: { opacity: 0.75, fontWeight: 500 } }, '↵')]),
+          h('button', { id: 'quick-save-btn', className: 'btn-primary', style: { background: accent }, onClick: () => saveQuick(type), disabled: type === 'OUT' && Number(state.quickQty) > avail(state.quickItem) }, [type === 'OUT' ? 'Save out entry ' : 'Save in entry ', h('span', { style: { opacity: 0.75, fontWeight: 500 } }, '↵')]),
         ]),
       ]),
     ]);
@@ -737,7 +743,7 @@ function buildEntryForm() {
           h('div', { id: 'bulk-summary', className: 'form-summary num' }, bulkSummaryText()),
           h('div', { className: 'spacer' }),
           h('button', { className: 'btn-secondary', onClick: () => setScreen('stock') }, 'Cancel'),
-          h('button', { className: 'btn-primary sm', style: { background: accent }, onClick: () => saveBulk(type) }, type === 'OUT' ? 'Save out entry' : 'Save in entry'),
+          h('button', { id: 'bulk-save-btn', className: 'btn-primary sm', style: { background: accent }, onClick: () => saveBulk(type), disabled: type === 'OUT' && state.draftLines.some((l) => Number(l.qty) > avail(l.itemId)) }, type === 'OUT' ? 'Save out entry' : 'Save in entry'),
         ]),
       ]),
     ]);
@@ -772,12 +778,11 @@ function quickSummaryText(type, avail) {
   return `${inr(+state.quickQty || 0)} ${it ? it.unit : ''} · ${fmt(state.draftDate)} · ${inr(avail(state.quickItem))} in store now`;
 }
 function renderQuickSummary() {
+  const type = state.screen === 'out' ? 'OUT' : 'IN';
   const el = document.getElementById('quick-summary');
-  if (el) el.textContent = quickSummaryText(state.screen === 'out' ? 'OUT' : 'IN', (id) => {
-    const it = itemById(id);
-    const { out } = computeOutLast();
-    return it ? it.ownedQty - (out[id] || 0) : 0;
-  });
+  if (el) el.textContent = quickSummaryText(type, availableFor);
+  const btn = document.getElementById('quick-save-btn');
+  if (btn) btn.disabled = type === 'OUT' && Number(state.quickQty) > availableFor(state.quickItem);
 }
 function bulkSummaryText() {
   const total = state.draftLines.reduce((a, d) => a + (+d.qty || 0), 0);
@@ -789,9 +794,7 @@ function renderBulkSummary() {
 }
 function patchBulkAvail(ix, type) {
   const line = state.draftLines[ix];
-  const { out } = computeOutLast();
-  const it = itemById(line.itemId);
-  const a = it ? it.ownedQty - (out[line.itemId] || 0) : 0;
+  const a = availableFor(line.itemId);
   const over = type === 'OUT' && Number(line.qty) > a;
   const availEl = document.getElementById(`bulk-avail-${ix}`);
   if (availEl) {
@@ -800,12 +803,20 @@ function patchBulkAvail(ix, type) {
   }
   const qtyEl = document.getElementById(`bulk-qty-${ix}`);
   if (qtyEl) qtyEl.style.borderColor = over ? 'var(--danger)' : 'var(--border)';
+
+  const btn = document.getElementById('bulk-save-btn');
+  if (btn) btn.disabled = type === 'OUT' && state.draftLines.some((l) => Number(l.qty) > availableFor(l.itemId));
 }
 
 async function saveQuick(type) {
   const qty = Number(state.quickQty);
   if (!state.quickItem || !Number.isFinite(qty) || qty <= 0) {
     pushToast('error', 'Enter a quantity greater than zero.');
+    return;
+  }
+  if (type === 'OUT' && qty > availableFor(state.quickItem)) {
+    const it = itemById(state.quickItem);
+    pushToast('error', `Only ${inr(availableFor(state.quickItem))} ${it ? it.unit : ''} of "${it ? it.name : 'this item'}" available — can't issue more than that.`);
     return;
   }
   const ok = await runOrToast(
@@ -823,6 +834,16 @@ async function saveBulk(type) {
   if (!lines.length) {
     pushToast('error', 'Enter at least one item with a quantity greater than zero.');
     return;
+  }
+  if (type === 'OUT') {
+    for (const l of lines) {
+      const a = availableFor(l.itemId);
+      if (l.qty > a) {
+        const it = itemById(l.itemId);
+        pushToast('error', `Only ${inr(a)} ${it ? it.unit : ''} of "${it ? it.name : 'this item'}" available — reduce that row's quantity.`);
+        return;
+      }
+    }
   }
   const ok = await runOrToast(() => invoke('add_movements', { kind: type, date: state.draftDate, lines }), null);
   if (ok) {
@@ -867,12 +888,14 @@ async function confirmDialog(message) {
 
 /* ============================== Item modal ============================== */
 function openItemModal(item) {
+  const categoryId = item ? item.categoryId : (state.categories[0] && state.categories[0].id) || null;
   state.modal = {
     kind: 'item',
     id: item ? item.id : null,
     name: item ? item.name : '',
-    categoryId: item ? item.categoryId : (state.categories[0] && state.categories[0].id) || null,
-    unit: item ? item.unit : 'nos',
+    categoryId,
+    unit: item ? item.unit : defaultUnitForCategory(categoryId),
+    unitTouched: !!item,
     ownedQty: item ? String(item.ownedQty) : '0',
     archived: item ? item.archived : false,
     error: '',
@@ -1002,14 +1025,17 @@ function buildModal() {
       h('div', { className: 'modal-field' }, [
         h('label', {}, 'Category'),
         (() => {
-          const sel = h('select', { id: 'modal-item-cat', onChange: (e) => { m.categoryId = Number(e.target.value); } }, state.categories.map((c) => h('option', { value: String(c.id) }, c.name)));
+          const sel = h('select', { id: 'modal-item-cat', onChange: (e) => {
+            m.categoryId = Number(e.target.value);
+            if (!m.id && !m.unitTouched) { m.unit = defaultUnitForCategory(m.categoryId); render(); }
+          } }, state.categories.map((c) => h('option', { value: String(c.id) }, c.name)));
           sel.value = String(m.categoryId || '');
           return sel;
         })(),
       ]),
       h('div', { className: 'modal-field' }, [
         h('label', {}, 'Unit'),
-        h('input', { id: 'modal-item-unit', value: m.unit, list: 'unit-suggestions', onInput: (e) => { m.unit = e.target.value; } }),
+        h('input', { id: 'modal-item-unit', value: m.unit, list: 'unit-suggestions', onInput: (e) => { m.unit = e.target.value; m.unitTouched = true; } }),
         h('datalist', { id: 'unit-suggestions' }, UNIT_SUGGESTIONS.map((u) => h('option', { value: u }))),
       ]),
       h('div', { className: 'modal-field' }, [h('label', {}, 'Owned quantity (godown total)'), h('input', { id: 'modal-item-qty', type: 'number', min: '0', value: m.ownedQty, onInput: (e) => { m.ownedQty = e.target.value; } })]),
