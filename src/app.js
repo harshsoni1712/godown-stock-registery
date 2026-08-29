@@ -628,7 +628,16 @@ function buildEntryForm() {
     ));
 
   let formNode;
-  if (state.entry === 'quick') {
+  if (!activeItems.length) {
+    formNode = h('div', { className: 'form-card' }, [
+      h('div', { className: 'form-accent', style: { background: accent } }),
+      h('div', { className: 'form-body', style: { textAlign: 'center', padding: '40px 20px' } }, [
+        h('div', { style: { fontFamily: "'Work Sans', sans-serif", fontWeight: 600, fontSize: '15px', marginBottom: '6px' } }, 'No items yet'),
+        h('div', { className: 'section-note', style: { marginBottom: '16px' } }, 'Add at least one item in Item master before recording an out or in entry.'),
+        h('button', { className: 'btn-primary', style: { background: 'var(--acc)' }, onClick: () => setScreen('items') }, 'Go to Item master'),
+      ]),
+    ]);
+  } else if (state.entry === 'quick') {
     const itemSelect = h('select', { id: 'quick-item-select', className: 'full-select', value: String(state.quickItem || ''), onChange: (e) => { state.quickItem = Number(e.target.value); render(); } },
       activeItems.map((i) => h('option', { value: String(i.id) }, `${i.name} (${(catById(i.categoryId) || {}).name || ''})`)));
     itemSelect.value = String(state.quickItem || '');
