@@ -1,13 +1,20 @@
 name: Build Windows installer
 
 # Produces the one-click Windows installer (.msi and .exe/NSIS) for the
-# Godown Stock Register desktop app.
+# Godown Stock Register desktop app, signed for auto-updates.
 #
 # - Push a tag like "v1.0.0" to build the installer AND publish it as a
-#   GitHub Release (this is the normal way to cut a new version).
+#   GitHub Release (this is the normal way to cut a new version — the app's
+#   built-in auto-updater checks this repo's *latest* release).
 # - Or run this workflow manually ("Run workflow" button) to just build
 #   the installer and attach it to the run as a downloadable artifact,
-#   without creating a release.
+#   without creating or updating a release.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   TAURI_SIGNING_PRIVATE_KEY          - the updater signing private key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD - its password
+#   GOOGLE_OAUTH_CLIENT_ID             - optional, enables Google Drive backup
+#   GOOGLE_OAUTH_CLIENT_SECRET         - optional, enables Google Drive backup
 
 on:
   push:
@@ -21,6 +28,11 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,17 +62,23 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Godown Stock Register ${{ github.ref_name }}"
           releaseBody: |
-            Offline godown stock register — items, categories, and dated OUT/IN movements.
-            No internet, no login, no cloud. Everything is stored locally in a single SQLite file.
+            Godown stock register — items, categories, and dated OUT/IN movements.
+            Local-first: everything lives in one SQLite file on this PC. Google Drive
+            backup is optional and only runs when you click it.
 
             ## Installing
             Download `Godown.Stock.Register_*_x64-setup.exe` (or the `.msi`) below, run it, and launch
             "Godown Stock Register" from the Start menu.
 
+            ## Updating
+            The app checks for new versions on launch and offers a one-click install — you
+            won't normally need to download this manually after your first install.
+
             ## Backing up your data
-            Use the **Backup** button in the app's sidebar any time to save a copy of your register to
-            a file of your choice, and **Restore** to load one back in.
-          releaseDraft: true
+            Use **Backup** in the app's sidebar any time to save a copy of your register to
+            a file of your choice (or to Google Drive, if connected), and **Restore** to load
+            one back in.
+          releaseDraft: false
           prerelease: false
 
       - name: Build only (manual run)

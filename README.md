@@ -1,11 +1,15 @@
 # Godown Stock Register
 
-An offline desktop app for a shuttering-store godown: track **items**, **categories**,
-and dated **OUT / IN** movements. No money, no rates, no customers or suppliers — just
-what left the godown, what came back, and when.
+A desktop app for a shuttering-store godown: track **items**, **categories**, and dated
+**OUT / IN** movements. No money, no rates, no customers or suppliers — just what left
+the godown, what came back, and when.
 
-- **Fully offline.** No internet, no login, no cloud, no accounts. Everything lives in
-  one SQLite file on the PC it's installed on.
+- **Local-first.** Everything lives in one SQLite file on the PC it's installed on, and
+  the app works fully offline day to day — no login, no accounts, no server it depends on.
+- **Online features are opt-in, not automatic.** Two things do use the internet, both
+  only when you ask: an on-launch check for app updates (one click to install), and an
+  optional push/pull of backups to a Google Drive account you connect yourself. Neither
+  is required for the app to work.
 - **Back-dating is normal.** Every OUT/IN entry has a date, and you can pick any past
   date — record the day the material actually moved, not the day you typed it.
 - **Built with [Tauri](https://tauri.app)** (Rust backend + a small vanilla HTML/CSS/JS
@@ -30,7 +34,9 @@ layout throughout.
 
 Backup and restore live as small buttons at the bottom of the sidebar: **Backup** writes
 a snapshot of the whole register to a `.db` file you choose; **Restore** replaces the
-live register with a chosen backup file (after confirming, since it can't be undone).
+live register with a chosen backup file (after confirming, since it can't be undone). If
+Google Drive is connected, matching **Backup ☁ / Restore ☁** buttons appear alongside
+them — see "Online features" below.
 
 ## Project layout
 
@@ -46,6 +52,7 @@ src-tauri/            Rust backend
     lib.rs             App setup, window, Tauri commands registration
     db.rs              SQLite connection + schema + seed data
     commands.rs         All Tauri commands (CRUD, movements, backup/restore)
+    gdrive.rs           Google Drive OAuth (loopback + PKCE) and backup/restore
     models.rs           Data structs shared with the frontend
   tauri.conf.json      Window, bundling, and installer configuration
 .github/workflows/
@@ -98,14 +105,58 @@ npm run build     # tauri build — installers land in src-tauri/target/release/
 
 ## Backing up your data
 
-Godown Stock Register never talks to the network, so backups are entirely manual and
-entirely yours:
-
-- **Backup** (sidebar) saves a complete, consistent snapshot of the register to any
-  `.db` file you choose — copy it to a USB drive, a shared folder, cloud storage you
+- **Backup to file** (sidebar) saves a complete, consistent snapshot of the register to
+  any `.db` file you choose — copy it to a USB drive, a shared folder, cloud storage you
   sync separately, wherever you'd like a copy to live.
-- **Restore** (sidebar) replaces everything currently in the register with a chosen
-  backup file. You'll be asked to confirm first, since it can't be undone.
+- **Restore from file** (sidebar) replaces everything currently in the register with a
+  chosen backup file. You'll be asked to confirm first, since it can't be undone.
+- **Backup ☁ / Restore ☁** (sidebar, once Google Drive is connected) do the same thing
+  against a "Godown Stock Register Backups" folder in your own Google Drive, instead of
+  a local file. Nothing is pushed automatically — only when you click the button.
+
+## Online features
+
+Two features talk to the internet, and both are entirely optional — the app works fully
+offline without either of them configured.
+
+### Auto-updates
+
+On launch, the app checks this repo's latest GitHub Release for a newer version. If one
+exists, a banner offers a one-click **Install & restart**. This needs the release
+artifacts to be cryptographically signed, which requires two repository secrets
+(**Settings → Secrets and variables → Actions → New repository secret** on GitHub):
+
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+Generate a keypair with `npx tauri signer generate -w ~/.tauri/godown.key`; put the
+private key file's contents and the password you chose into those two secrets, and put
+the printed public key into `plugins.updater.pubkey` in `src-tauri/tauri.conf.json` (it's
+already set for this repo's key — only regenerate it if you're forking this project).
+**Keep the private key somewhere safe outside git** — if you lose it, you'll need to
+generate a new one and everyone will need to reinstall instead of auto-updating.
+
+### Google Drive backup
+
+The **Connect Google Drive** button (sidebar) only appears once the app is built with
+OAuth credentials for a Google Cloud project you control. To set one up:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/), create a project
+   (or reuse one), and enable the **Google Drive API** under *APIs & Services → Library*.
+2. Under *APIs & Services → OAuth consent screen*, configure it (External user type for
+   a personal Gmail account is fine) and add your own Google account under **Test users**.
+   Publishing status can stay "Testing" while you try it out, but refresh tokens expire
+   after 7 days in that mode — switch to **"In production"** for everyday use (no
+   verification review needed for this scope at this scale; you'll just see an
+   "unverified app" warning during sign-in once, which is safe to click through since
+   it's your own app).
+3. Under *APIs & Services → Credentials*, create an **OAuth client ID** of type
+   **Desktop app**. Copy the Client ID and Client Secret it gives you.
+4. Add them as two more repository secrets: `GOOGLE_OAUTH_CLIENT_ID` and
+   `GOOGLE_OAUTH_CLIENT_SECRET`. The next build will bake them in.
+
+The app only ever requests the `drive.file` scope — it can only see and manage files it
+created itself, never your whole Drive.
 
 ## License
 

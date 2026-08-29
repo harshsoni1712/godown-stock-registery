@@ -379,6 +379,12 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
 .recent-date { color: var(--muted-2); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .recent-empty { padding: 16px 0; color: var(--muted-2); font-size: 12px; }
 
+/* ---------- Update banner ---------- */
+.update-banner {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 9px 24px;
+  background: var(--acc-t); border-bottom: 1px solid var(--border-soft); font-size: 12.5px;
+}
+
 /* ---------- Status bar ---------- */
 .statusbar {
   flex: none; height: 27px; display: flex; align-items: center; gap: 16px; padding: 0 24px;

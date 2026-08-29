@@ -112,6 +112,10 @@ const state = {
   modal: null,
   toasts: [],
   busy: false,
+
+  update: null, // the Tauri Update object once one is found
+  updateStatus: 'idle', // idle | downloading | error
+  google: { configured: false, connected: false, email: null },
 };
 
 let toastSeq = 1;
@@ -232,6 +236,7 @@ function buildSidebar() {
       h('button', { className: 'sidebar-tool-btn', onClick: doBackup, disabled: state.busy }, 'Backup ⭳'),
       h('button', { className: 'sidebar-tool-btn', onClick: doRestore, disabled: state.busy }, 'Restore ⭱'),
     ]),
+    state.google.configured ? buildGoogleDriveTools() : null,
   ]);
 
   return h('div', { className: 'sidebar' }, [
@@ -239,6 +244,22 @@ function buildSidebar() {
     nav,
     h('div', { className: 'sidebar-spacer' }),
     footer,
+  ]);
+}
+
+function buildGoogleDriveTools() {
+  if (!state.google.connected) {
+    return h('div', { style: { marginTop: '9px' } }, [
+      h('button', { className: 'sidebar-tool-btn', style: { width: '100%' }, onClick: doGoogleConnect, disabled: state.busy }, 'Connect Google Drive ☁'),
+    ]);
+  }
+  return h('div', { style: { marginTop: '9px' } }, [
+    h('div', { style: { fontSize: '10.5px', color: '#8d83ac', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `☁ ${state.google.email || 'Connected'}`),
+    h('div', { className: 'sidebar-tools' }, [
+      h('button', { className: 'sidebar-tool-btn', onClick: doGoogleBackup, disabled: state.busy }, 'Backup ☁'),
+      h('button', { className: 'sidebar-tool-btn', onClick: openGoogleRestoreModal, disabled: state.busy }, 'Restore ☁'),
+    ]),
+    h('button', { className: 'sidebar-tool-btn', style: { width: '100%', marginTop: '6px', opacity: 0.75 }, onClick: doGoogleDisconnect }, 'Disconnect'),
   ]);
 }
 
@@ -251,9 +272,24 @@ function setScreen(key) {
 function buildMain() {
   const main = h('div', { className: 'main' });
   main.appendChild(buildHeader());
+  const banner = buildUpdateBanner();
+  if (banner) main.appendChild(banner);
   main.appendChild(buildContent());
   main.appendChild(buildStatusbar());
   return main;
+}
+
+function buildUpdateBanner() {
+  if (!state.update) return null;
+  const downloading = state.updateStatus === 'downloading';
+  return h('div', { className: 'update-banner' }, [
+    h('div', {}, [
+      h('span', { style: { fontWeight: 600 } }, `Update available: v${state.update.version}`),
+      h('span', { style: { color: 'var(--muted)', marginLeft: '8px' } }, `(you have v${state.update.currentVersion})`),
+    ]),
+    h('div', { className: 'spacer' }),
+    h('button', { className: 'btn-primary sm', style: { background: 'var(--acc)' }, onClick: installUpdate, disabled: downloading }, downloading ? 'Downloading…' : 'Install & restart'),
+  ]);
 }
 
 function buildHeader() {
@@ -935,6 +971,29 @@ function buildModal() {
   const m = state.modal;
   const overlay = h('div', { className: 'modal-overlay', onClick: (e) => { if (e.target === overlay) { state.modal = null; render(); } } });
 
+  if (m.kind === 'drive-restore') {
+    let body;
+    if (m.loading) {
+      body = h('div', { className: 'section-note' }, 'Loading backups from Google Drive…');
+    } else if (m.error) {
+      body = h('div', { className: 'modal-error' }, m.error);
+    } else if (!m.entries.length) {
+      body = h('div', { className: 'section-note' }, 'No backups found in Google Drive yet.');
+    } else {
+      body = h('div', {}, m.entries.map((e) => h('div', { className: 'recent-row', style: { cursor: 'pointer' }, onClick: () => doGoogleRestore(e.id, e.name) }, [
+        h('div', { style: { minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, e.name),
+        h('div', { className: 'recent-date' }, e.createdTime ? e.createdTime.slice(0, 10) : ''),
+      ])));
+    }
+    const card = h('div', { className: 'modal-card' }, [
+      h('div', { className: 'modal-title' }, 'Restore from Google Drive'),
+      body,
+      h('div', { className: 'modal-footer' }, [h('button', { className: 'btn-secondary', onClick: () => { state.modal = null; render(); } }, 'Cancel')]),
+    ]);
+    overlay.appendChild(card);
+    return overlay;
+  }
+
   if (m.kind === 'item') {
     const card = h('div', { className: 'modal-card' }, [
       h('div', { className: 'modal-title' }, m.id ? 'Edit item' : 'New item'),
@@ -1034,6 +1093,122 @@ async function doRestore() {
   }
 }
 
+/* ============================== Google Drive backup ============================== */
+async function loadGoogleStatus() {
+  try {
+    state.google = await invoke('google_status');
+  } catch {
+    /* leave defaults — feature just won't show */
+  }
+  render();
+}
+
+async function doGoogleConnect() {
+  if (state.busy) return;
+  state.busy = true; render();
+  try {
+    state.google = await invoke('google_connect');
+    pushToast('success', state.google.email ? `Connected as ${state.google.email}.` : 'Connected to Google Drive.');
+  } catch (e) {
+    pushToast('error', errText(e));
+  }
+  state.busy = false;
+  render();
+}
+
+async function doGoogleDisconnect() {
+  const ok = await confirmDialog('Disconnect this Google account? You can reconnect any time.');
+  if (!ok) return;
+  try {
+    await invoke('google_disconnect');
+    state.google = { configured: state.google.configured, connected: false, email: null };
+    pushToast('success', 'Disconnected from Google Drive.');
+    render();
+  } catch (e) {
+    pushToast('error', errText(e));
+  }
+}
+
+async function doGoogleBackup() {
+  if (state.busy) return;
+  state.busy = true; render();
+  try {
+    await invoke('google_backup');
+    pushToast('success', 'Backup uploaded to Google Drive.');
+  } catch (e) {
+    pushToast('error', errText(e));
+  }
+  state.busy = false;
+  render();
+}
+
+async function openGoogleRestoreModal() {
+  state.modal = { kind: 'drive-restore', loading: true, entries: [], error: '' };
+  render();
+  try {
+    const entries = await invoke('google_list_backups');
+    if (state.modal && state.modal.kind === 'drive-restore') {
+      state.modal.loading = false;
+      state.modal.entries = entries;
+      render();
+    }
+  } catch (e) {
+    if (state.modal && state.modal.kind === 'drive-restore') {
+      state.modal.loading = false;
+      state.modal.error = errText(e);
+      render();
+    }
+  }
+}
+
+async function doGoogleRestore(fileId, name) {
+  const ok = await confirmDialog(`Restore "${name}"? This replaces everything currently in this register and can't be undone.`);
+  if (!ok) return;
+  state.modal = null;
+  state.busy = true; render();
+  try {
+    const data = await invoke('google_restore_backup', { fileId });
+    state.categories = data.categories;
+    state.items = data.items;
+    state.movements = data.movements;
+    state.dbPath = data.dbPath;
+    pushToast('success', 'Backup restored from Google Drive.');
+  } catch (e) {
+    pushToast('error', errText(e));
+  }
+  state.busy = false;
+  render();
+}
+
+/* ============================== Auto-update ============================== */
+async function checkForUpdates() {
+  try {
+    const update = await window.__TAURI__.updater.check();
+    if (update) {
+      state.update = update;
+      render();
+    }
+  } catch {
+    /* offline or check failed — stay quiet, this is a background check */
+  }
+}
+
+async function installUpdate() {
+  if (!state.update || state.updateStatus === 'downloading') return;
+  state.updateStatus = 'downloading';
+  render();
+  try {
+    await state.update.downloadAndInstall();
+    await window.__TAURI__.process.relaunch();
+  } catch (e) {
+    state.updateStatus = 'error';
+    pushToast('error', 'Update failed: ' + errText(e));
+    render();
+  }
+}
+
 /* ============================== Boot ============================== */
 render();
 loadAll();
+loadGoogleStatus();
+checkForUpdates();
