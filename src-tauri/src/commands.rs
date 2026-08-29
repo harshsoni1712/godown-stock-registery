@@ -185,7 +185,7 @@ pub fn create_item(
     let unit = {
         let u = unit.trim();
         if u.is_empty() {
-            "nos".to_string()
+            "pcs".to_string()
         } else {
             u.to_string()
         }
@@ -226,7 +226,7 @@ pub fn update_item(
     let unit = {
         let u = unit.trim();
         if u.is_empty() {
-            "nos".to_string()
+            "pcs".to_string()
         } else {
             u.to_string()
         }
@@ -291,6 +291,45 @@ pub fn add_movements(
     let mut conn = state.conn.lock().map_err(|e| e.to_string())?;
     let created_at = now_iso();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    if kind == "OUT" {
+        let mut reserved: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+        for l in &lines {
+            let owned_qty: i64 = tx
+                .query_row(
+                    "SELECT owned_qty FROM items WHERE id = ?1",
+                    params![l.item_id],
+                    |r| r.get(0),
+                )
+                .map_err(|_| "One of the selected items no longer exists.".to_string())?;
+            let net_out: i64 = tx
+                .query_row(
+                    "SELECT COALESCE(SUM(CASE WHEN type = 'OUT' THEN qty ELSE -qty END), 0) FROM movements WHERE item_id = ?1",
+                    params![l.item_id],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            let already_reserved = *reserved.get(&l.item_id).unwrap_or(&0);
+            let available = owned_qty - net_out - already_reserved;
+            if l.qty > available {
+                let name: String = tx
+                    .query_row(
+                        "SELECT name FROM items WHERE id = ?1",
+                        params![l.item_id],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or_else(|_| "this item".to_string());
+                return Err(format!(
+                    "Only {} available for \"{}\" — can't issue {}.",
+                    available.max(0),
+                    name,
+                    l.qty
+                ));
+            }
+            *reserved.entry(l.item_id).or_insert(0) += l.qty;
+        }
+    }
+
     let mut out = Vec::with_capacity(lines.len());
     for l in &lines {
         tx.execute(
