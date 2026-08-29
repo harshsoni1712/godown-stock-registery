@@ -1,7 +1,9 @@
 mod commands;
 mod db;
+mod gdrive;
 mod models;
 
+use gdrive::GoogleState;
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -15,6 +17,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let dir = app
                 .path()
@@ -27,6 +31,7 @@ pub fn run() {
                 conn: Mutex::new(conn),
                 db_path,
             });
+            app.manage(GoogleState::load(dir.join("google_auth.json")));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -42,6 +47,12 @@ pub fn run() {
             commands::delete_movement,
             commands::backup_database,
             commands::restore_database,
+            commands::google_status,
+            commands::google_connect,
+            commands::google_disconnect,
+            commands::google_backup,
+            commands::google_list_backups,
+            commands::google_restore_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

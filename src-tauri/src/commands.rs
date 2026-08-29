@@ -336,9 +336,13 @@ pub fn backup_database(state: State<AppState>, dest_path: String) -> Result<(), 
 /// it looks like one of our backups. Returns the freshly loaded data.
 #[tauri::command]
 pub fn restore_database(state: State<AppState>, src_path: String) -> Result<AllData, String> {
+    restore_from_path(&state, Path::new(&src_path))
+}
+
+pub fn restore_from_path(state: &AppState, src_path: &Path) -> Result<AllData, String> {
     {
         let candidate =
-            Connection::open(&src_path).map_err(|e| format!("Can't open that file: {e}"))?;
+            Connection::open(src_path).map_err(|e| format!("Can't open that file: {e}"))?;
         let has_tables: i64 = candidate
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('categories', 'items', 'movements')",
@@ -358,10 +362,80 @@ pub fn restore_database(state: State<AppState>, src_path: String) -> Result<AllD
     let old_conn = std::mem::replace(&mut *conn_guard, placeholder);
     drop(old_conn);
 
-    std::fs::copy(&src_path, &state.db_path).map_err(|e| e.to_string())?;
+    std::fs::copy(src_path, &state.db_path).map_err(|e| e.to_string())?;
 
     let reopened = db::open(&state.db_path).map_err(|e| e.to_string())?;
     *conn_guard = reopened;
 
     read_all_data(&conn_guard, &state.db_path.to_string_lossy()).map_err(|e| e.to_string())
+}
+
+/// Snapshots the live database to a temp file and returns its bytes (used for
+/// uploading a backup to Google Drive without leaving a stray file behind).
+pub fn vacuum_to_bytes(state: &AppState) -> Result<Vec<u8>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let tmp_path =
+        std::env::temp_dir().join(format!("godown-backup-{}.db", now_iso().replace(':', "-")));
+    conn.execute("VACUUM INTO ?1", params![tmp_path.to_string_lossy()])
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+    let bytes = std::fs::read(&tmp_path).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&tmp_path);
+    Ok(bytes)
+}
+
+// ---------------------------------------------------------------------------
+// Google Drive backup (manual, opt-in — see gdrive.rs)
+// ---------------------------------------------------------------------------
+
+use crate::gdrive::{self, GoogleState};
+
+#[tauri::command]
+pub fn google_status(state: State<GoogleState>) -> gdrive::GoogleStatus {
+    gdrive::status(&state)
+}
+
+#[tauri::command]
+pub async fn google_connect(
+    app: tauri::AppHandle,
+    state: State<'_, GoogleState>,
+) -> Result<gdrive::GoogleStatus, String> {
+    gdrive::connect(&state, &app).await
+}
+
+#[tauri::command]
+pub fn google_disconnect(state: State<GoogleState>) -> Result<(), String> {
+    gdrive::disconnect(&state)
+}
+
+#[tauri::command]
+pub async fn google_backup(
+    app_state: State<'_, AppState>,
+    google_state: State<'_, GoogleState>,
+) -> Result<(), String> {
+    let bytes = vacuum_to_bytes(&app_state)?;
+    let filename = format!("godown-backup-{}.db", now_iso().replace(':', "-"));
+    gdrive::upload_backup(&google_state, bytes, &filename).await
+}
+
+#[tauri::command]
+pub async fn google_list_backups(
+    state: State<'_, GoogleState>,
+) -> Result<Vec<gdrive::DriveBackupEntry>, String> {
+    gdrive::list_backups(&state).await
+}
+
+#[tauri::command]
+pub async fn google_restore_backup(
+    file_id: String,
+    app_state: State<'_, AppState>,
+    google_state: State<'_, GoogleState>,
+) -> Result<AllData, String> {
+    let bytes = gdrive::download_backup(&google_state, &file_id).await?;
+    let tmp_path =
+        std::env::temp_dir().join(format!("godown-restore-{}.db", now_iso().replace(':', "-")));
+    std::fs::write(&tmp_path, &bytes).map_err(|e| e.to_string())?;
+    let result = restore_from_path(&app_state, &tmp_path);
+    let _ = std::fs::remove_file(&tmp_path);
+    result
 }
