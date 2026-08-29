@@ -1,0 +1,1 @@
+# godown-stock-registery
