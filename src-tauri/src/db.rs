@@ -45,19 +45,24 @@ fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
 
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM categories", [], |r| r.get(0))?;
     if count == 0 {
-        let defaults: [(&str, i64); 5] = [
-            ("Plates", 0),
-            ("Ballies", 1),
-            ("Fiber Sheet", 2),
-            ("Props & Jacks", 3),
-            ("Spans", 4),
-        ];
-        for (i, (name, palette)) in defaults.iter().enumerate() {
-            conn.execute(
-                "INSERT INTO categories (name, palette, sort_order) VALUES (?1, ?2, ?3)",
-                params![name, palette, i as i64],
-            )?;
-        }
+        seed_default_categories(conn)?;
+    }
+    Ok(())
+}
+
+pub fn seed_default_categories(conn: &Connection) -> rusqlite::Result<()> {
+    let defaults: [(&str, i64); 5] = [
+        ("Plates", 0),
+        ("Ballies", 1),
+        ("Fiber Sheet", 2),
+        ("Props & Jacks", 3),
+        ("Spans", 4),
+    ];
+    for (i, (name, palette)) in defaults.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO categories (name, palette, sort_order) VALUES (?1, ?2, ?3)",
+            params![name, palette, i as i64],
+        )?;
     }
     Ok(())
 }

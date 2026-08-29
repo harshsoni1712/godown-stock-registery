@@ -378,6 +378,22 @@ pub fn restore_database(state: State<AppState>, src_path: String) -> Result<AllD
     restore_from_path(&state, Path::new(&src_path))
 }
 
+/// Wipes every category, item, and movement and reseeds the default
+/// categories, leaving the register exactly like a fresh install. Backups
+/// taken beforehand (local or Google Drive) are untouched and can still be
+/// restored afterwards.
+#[tauri::command]
+pub fn reset_all_data(state: State<AppState>) -> Result<AllData, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute_batch(
+        "DELETE FROM movements; DELETE FROM items; DELETE FROM categories;
+         DELETE FROM sqlite_sequence WHERE name IN ('movements', 'items', 'categories');",
+    )
+    .map_err(|e| e.to_string())?;
+    db::seed_default_categories(&conn).map_err(|e| e.to_string())?;
+    read_all_data(&conn, &state.db_path.to_string_lossy()).map_err(|e| e.to_string())
+}
+
 pub fn restore_from_path(state: &AppState, src_path: &Path) -> Result<AllData, String> {
     {
         let candidate =

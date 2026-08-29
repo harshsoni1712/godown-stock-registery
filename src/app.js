@@ -247,6 +247,7 @@ function buildSidebar() {
       h('button', { className: 'sidebar-tool-btn', onClick: doRestore, disabled: state.busy }, 'Restore ⭱'),
     ]),
     state.google.configured ? buildGoogleDriveTools() : null,
+    h('button', { className: 'sidebar-tool-btn danger', style: { width: '100%', marginTop: '9px' }, onClick: doResetAllData, disabled: state.busy }, 'Reset all data ⟲'),
   ]);
 
   return h('div', { className: 'sidebar' }, [
@@ -1112,6 +1113,29 @@ async function doRestore() {
     state.dbPath = data.dbPath;
     state.busy = false;
     pushToast('success', 'Backup restored.');
+    render();
+  } catch (e) {
+    state.busy = false;
+    pushToast('error', errText(e));
+  }
+}
+async function doResetAllData() {
+  if (state.busy) return;
+  const ok = await confirmDialog(
+    `This deletes every item, category, and movement in this register and can't be undone. Use Backup first if you want to keep a copy of what's here now. Continue?`
+  );
+  if (!ok) return;
+  state.busy = true; render();
+  try {
+    const data = await invoke('reset_all_data');
+    state.categories = data.categories;
+    state.items = data.items;
+    state.movements = data.movements;
+    state.dbPath = data.dbPath;
+    state.screen = 'stock';
+    state.cat = 'All';
+    state.busy = false;
+    pushToast('success', 'All data reset.');
     render();
   } catch (e) {
     state.busy = false;

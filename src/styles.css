@@ -188,6 +188,9 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
   color: #a79cc4; font-size: 10.5px; font-weight: 600; cursor: pointer; text-align: center;
 }
 .sidebar-tool-btn:hover { background: #332a52; color: #ddd6ee; }
+.sidebar-tool-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.sidebar-tool-btn.danger { border-color: #5a2f3a; color: #e0a3b0; }
+.sidebar-tool-btn.danger:hover { background: #4a2530; color: #ffd0da; }
 
 /* ---------- Main ---------- */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel-bg); }

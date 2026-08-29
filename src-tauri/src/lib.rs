@@ -46,6 +46,7 @@ pub fn run() {
             commands::add_movements,
             commands::delete_movement,
             commands::backup_database,
+            commands::reset_all_data,
             commands::restore_database,
             commands::google_status,
             commands::google_connect,
