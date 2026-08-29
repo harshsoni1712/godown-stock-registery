@@ -3,9 +3,12 @@ name: Build Windows installer
 # Produces the one-click Windows installer (.msi and .exe/NSIS) for the
 # Godown Stock Register desktop app, signed for auto-updates.
 #
-# - Push a tag like "v1.0.0" to build the installer AND publish it as a
-#   GitHub Release (this is the normal way to cut a new version — the app's
-#   built-in auto-updater checks this repo's *latest* release).
+# - A push to main that bumps the version in package.json builds the
+#   installer AND publishes it as a GitHub Release, tagged vX.Y.Z, in the
+#   same run — this is the normal way to cut a new version. Merging a
+#   version-bump PR is the only step needed; nothing to click afterwards.
+#   (Pushing to main without a version bump is a no-op: the check-version
+#   job sees the tag already exists and skips the build.)
 # - Or run this workflow manually ("Run workflow" button) to just build
 #   the installer and attach it to the run as a downloadable artifact,
 #   without creating or updating a release.
@@ -18,15 +21,44 @@ name: Build Windows installer
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: [main]
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    outputs:
+      mode: ${{ steps.v.outputs.mode }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Decide whether to release
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=build_only" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists — nothing new to release."
+            echo "mode=skip" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+          fi
+
   build-windows:
+    needs: check-version
+    if: needs.check-version.outputs.mode != 'skip'
     runs-on: windows-latest
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -53,14 +85,14 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build and release (tag push)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Build and release (version bump on main)
+        if: needs.check-version.outputs.mode == 'release'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Godown Stock Register ${{ github.ref_name }}"
+          tagName: ${{ needs.check-version.outputs.tag }}
+          releaseName: "Godown Stock Register ${{ needs.check-version.outputs.tag }}"
           releaseBody: |
             Godown stock register — items, categories, and dated OUT/IN movements.
             Local-first: everything lives in one SQLite file on this PC. Google Drive
@@ -82,13 +114,13 @@ jobs:
           prerelease: false
 
       - name: Build only (manual run)
-        if: github.event_name == 'workflow_dispatch'
+        if: needs.check-version.outputs.mode == 'build_only'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload installer artifact (manual run)
-        if: github.event_name == 'workflow_dispatch'
+        if: needs.check-version.outputs.mode == 'build_only'
         uses: actions/upload-artifact@v4
         with:
           name: godown-stock-register-windows-installer

@@ -80,18 +80,20 @@ npm run dev      # tauri dev — opens the app in a live-reloading window
 
 The Windows `.msi` and `.exe` (NSIS) installers are built by GitHub Actions on a
 `windows-latest` runner (cross-compiling a real Windows installer from another OS isn't
-practical, so CI does the actual build). Two ways to trigger it, from the **Actions**
-tab of this repository:
+practical, so CI does the actual build).
 
-1. **Push a version tag** — this builds the installer *and* publishes it as a (draft)
-   GitHub Release with the `.msi`/`.exe` attached:
-   ```sh
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-2. **Run the workflow manually** — open the *Build Windows installer* workflow → *Run
-   workflow*. This just builds and attaches the installer to that run as a downloadable
-   artifact, without creating a release.
+**To ship a new version, bump the version number and merge to `main` — that's it.**
+Update the version in `package.json`, `src-tauri/Cargo.toml`, and
+`src-tauri/tauri.conf.json` (they must all match), then merge. The
+`build-windows.yml` workflow notices the bump, builds the signed installer, and
+publishes it as a GitHub Release tagged `vX.Y.Z` with the `.msi`/`.exe` attached —
+no manual tagging or clicking "Publish release" required. Merging to `main` without
+a version bump is a no-op (the workflow sees the tag already exists and skips the
+build).
+
+You can also trigger a build without releasing: open the *Build Windows installer*
+workflow in the **Actions** tab → *Run workflow*. This just builds and attaches the
+installer to that run as a downloadable artifact, without creating a release.
 
 Once built, download the installer, run it on the target Windows PC, and launch "Godown
 Stock Register" from the Start menu — no other setup required.
