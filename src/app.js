@@ -122,11 +122,17 @@ const state = {
   modal: null,
   toasts: [],
   busy: false,
+  busyAction: null, // which backup/restore action is in flight, for button loading labels
+  localBackupOpen: false,
 
   update: null, // the Tauri Update object once one is found
   updateStatus: 'idle', // idle | downloading | error
   google: { configured: false, connected: false, email: null },
 };
+
+function busyLabel(action, loadingText, idleContent) {
+  return state.busyAction === action ? [h('span', { className: 'btn-spinner' }), loadingText] : idleContent;
+}
 
 let toastSeq = 1;
 function pushToast(kind, text) {
@@ -239,15 +245,28 @@ function buildSidebar() {
     );
   });
 
+  const localBackupSection = state.google.configured
+    ? h('div', { style: { marginTop: '9px' } }, [
+        h('button', {
+          className: 'accordion-toggle',
+          onClick: () => { state.localBackupOpen = !state.localBackupOpen; render(); },
+        }, [h('span', {}, 'Local backup'), h('span', { className: 'accordion-caret' }, state.localBackupOpen ? '▾' : '▸')]),
+        state.localBackupOpen ? h('div', { className: 'sidebar-tools', style: { marginTop: '7px' } }, [
+          h('button', { className: 'sidebar-tool-btn', onClick: doBackup, disabled: state.busy }, busyLabel('backup', 'Backing up…', 'Backup ⭳')),
+          h('button', { className: 'sidebar-tool-btn', onClick: doRestore, disabled: state.busy }, busyLabel('restore', 'Restoring…', 'Restore ⭱')),
+        ]) : null,
+      ])
+    : h('div', { className: 'sidebar-tools', style: { marginTop: '9px' } }, [
+        h('button', { className: 'sidebar-tool-btn', onClick: doBackup, disabled: state.busy }, busyLabel('backup', 'Backing up…', 'Backup ⭳')),
+        h('button', { className: 'sidebar-tool-btn', onClick: doRestore, disabled: state.busy }, busyLabel('restore', 'Restoring…', 'Restore ⭱')),
+      ]);
+
   const footer = h('div', { className: 'sidebar-footer' }, [
     h('div', { className: 'today' }, fmt(todayStr())),
     h('div', {}, `Saved ${state.savedAt || '—'}`),
-    h('div', { className: 'sidebar-tools' }, [
-      h('button', { className: 'sidebar-tool-btn', onClick: doBackup, disabled: state.busy }, 'Backup ⭳'),
-      h('button', { className: 'sidebar-tool-btn', onClick: doRestore, disabled: state.busy }, 'Restore ⭱'),
-    ]),
     state.google.configured ? buildGoogleDriveTools() : null,
-    h('button', { className: 'sidebar-tool-btn danger', style: { width: '100%', marginTop: '9px' }, onClick: doResetAllData, disabled: state.busy }, 'Reset all data ⟲'),
+    localBackupSection,
+    h('button', { className: 'sidebar-tool-btn danger', style: { width: '100%', marginTop: '9px' }, onClick: doResetAllData, disabled: state.busy }, busyLabel('reset', 'Resetting…', 'Reset all data ⟲')),
   ]);
 
   return h('div', { className: 'sidebar' }, [
@@ -261,13 +280,13 @@ function buildSidebar() {
 function buildGoogleDriveTools() {
   if (!state.google.connected) {
     return h('div', { style: { marginTop: '9px' } }, [
-      h('button', { className: 'sidebar-tool-btn', style: { width: '100%' }, onClick: doGoogleConnect, disabled: state.busy }, 'Connect Google Drive ☁'),
+      h('button', { className: 'sidebar-tool-btn', style: { width: '100%' }, onClick: doGoogleConnect, disabled: state.busy }, busyLabel('googleConnect', 'Connecting…', 'Connect Google Drive ☁')),
     ]);
   }
   return h('div', { style: { marginTop: '9px' } }, [
     h('div', { style: { fontSize: '10.5px', color: '#8d83ac', marginBottom: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `☁ ${state.google.email || 'Connected'}`),
     h('div', { className: 'sidebar-tools' }, [
-      h('button', { className: 'sidebar-tool-btn', onClick: doGoogleBackup, disabled: state.busy }, 'Backup ☁'),
+      h('button', { className: 'sidebar-tool-btn', onClick: doGoogleBackup, disabled: state.busy }, busyLabel('googleBackup', 'Uploading…', 'Backup ☁')),
       h('button', { className: 'sidebar-tool-btn', onClick: openGoogleRestoreModal, disabled: state.busy }, 'Restore ☁'),
     ]),
     h('button', { className: 'sidebar-tool-btn', style: { width: '100%', marginTop: '6px', opacity: 0.75 }, onClick: doGoogleDisconnect }, 'Disconnect'),
@@ -1093,12 +1112,12 @@ async function doBackup() {
       filters: [{ name: 'Godown Stock Register backup', extensions: ['db'] }],
     });
     if (!path) return;
-    state.busy = true; render();
+    state.busy = true; state.busyAction = 'backup'; render();
     await invoke('backup_database', { destPath: path });
-    state.busy = false;
+    state.busy = false; state.busyAction = null;
     pushToast('success', 'Backup saved.');
   } catch (e) {
-    state.busy = false;
+    state.busy = false; state.busyAction = null;
     pushToast('error', errText(e));
   }
 }
@@ -1112,17 +1131,17 @@ async function doRestore() {
       filters: [{ name: 'Godown Stock Register backup', extensions: ['db'] }],
     });
     if (!path) return;
-    state.busy = true; render();
+    state.busy = true; state.busyAction = 'restore'; render();
     const data = await invoke('restore_database', { srcPath: path });
     state.categories = data.categories;
     state.items = data.items;
     state.movements = data.movements;
     state.dbPath = data.dbPath;
-    state.busy = false;
+    state.busy = false; state.busyAction = null;
     pushToast('success', 'Backup restored.');
     render();
   } catch (e) {
-    state.busy = false;
+    state.busy = false; state.busyAction = null;
     pushToast('error', errText(e));
   }
 }
@@ -1132,7 +1151,7 @@ async function doResetAllData() {
     `This deletes every item, category, and movement in this register and can't be undone. Use Backup first if you want to keep a copy of what's here now. Continue?`
   );
   if (!ok) return;
-  state.busy = true; render();
+  state.busy = true; state.busyAction = 'reset'; render();
   try {
     const data = await invoke('reset_all_data');
     state.categories = data.categories;
@@ -1141,11 +1160,11 @@ async function doResetAllData() {
     state.dbPath = data.dbPath;
     state.screen = 'stock';
     state.cat = 'All';
-    state.busy = false;
+    state.busy = false; state.busyAction = null;
     pushToast('success', 'All data reset.');
     render();
   } catch (e) {
-    state.busy = false;
+    state.busy = false; state.busyAction = null;
     pushToast('error', errText(e));
   }
 }
@@ -1162,14 +1181,14 @@ async function loadGoogleStatus() {
 
 async function doGoogleConnect() {
   if (state.busy) return;
-  state.busy = true; render();
+  state.busy = true; state.busyAction = 'googleConnect'; render();
   try {
     state.google = await invoke('google_connect');
     pushToast('success', state.google.email ? `Connected as ${state.google.email}.` : 'Connected to Google Drive.');
   } catch (e) {
     pushToast('error', errText(e));
   }
-  state.busy = false;
+  state.busy = false; state.busyAction = null;
   render();
 }
 
@@ -1188,14 +1207,14 @@ async function doGoogleDisconnect() {
 
 async function doGoogleBackup() {
   if (state.busy) return;
-  state.busy = true; render();
+  state.busy = true; state.busyAction = 'googleBackup'; render();
   try {
     await invoke('google_backup');
     pushToast('success', 'Backup uploaded to Google Drive.');
   } catch (e) {
     pushToast('error', errText(e));
   }
-  state.busy = false;
+  state.busy = false; state.busyAction = null;
   render();
 }
 
