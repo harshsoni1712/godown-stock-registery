@@ -338,9 +338,9 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
   font-variant-numeric: tabular-nums; font-size: 19px; font-weight: 600; font-family: 'Work Sans', sans-serif;
 }
 .quick-avail-value {
-  width: 100%; height: 100%; box-sizing: border-box; padding: 10px; border: 1px solid var(--border-softer); border-radius: 8px;
-  text-align: right; font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600; color: var(--muted);
-  background: var(--panel-2, #f8f5fb); display: flex; align-items: center; justify-content: flex-end;
+  width: 100%; height: 100%; box-sizing: border-box; padding: 10px 2px;
+  text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted);
+  display: flex; align-items: center; justify-content: flex-end;
 }
 .full-select, .full-input {
   width: 100%; padding: 11px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 14px;
