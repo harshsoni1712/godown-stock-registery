@@ -374,11 +374,13 @@ function itemById(id) { return state.items.find((i) => i.id === id); }
 function buildStockCards() {
   const { out, last } = computeOutLast();
   const activeItems = state.items.filter((i) => !i.archived);
-  const owned = activeItems.reduce((a, i) => a + i.ownedQty, 0);
-  const totalOut = activeItems.reduce((a, i) => a + (out[i.id] || 0), 0);
   const monthStart = startOfMonth(todayStr());
-  const movedThisMonth = state.movements.filter((m) => m.date >= monthStart).reduce((a, m) => a + m.qty, 0);
+  const monthMoves = state.movements.filter((m) => m.date >= monthStart);
+  const monthOut = monthMoves.filter((m) => m.type === 'OUT').length;
+  const monthIn = monthMoves.filter((m) => m.type === 'IN').length;
   const lastEntry = state.movements.length ? state.movements.reduce((a, m) => (m.date > a ? m.date : a), state.movements[0].date) : null;
+  const itemsInStock = activeItems.filter((i) => i.ownedQty - (out[i.id] || 0) > 0);
+  const categoriesStocked = new Set(itemsInStock.map((i) => i.categoryId)).size;
   const itemsOnRent = Object.keys(out).filter((k) => out[k] > 0).length;
 
   const statColors = [
@@ -388,9 +390,9 @@ function buildStockCards() {
     { bg: 'oklch(0.96 0.03 160)', bd: 'oklch(0.90 0.05 160)', dot: 'oklch(0.58 0.12 160)', labelFg: 'oklch(0.43 0.08 160)', valueFg: 'oklch(0.32 0.09 160)' },
   ];
   const statData = [
-    { label: 'PIECES IN STORE', value: inr(owned - totalOut), sub: 'available to issue' },
-    { label: 'OUT ON RENT', value: inr(totalOut), sub: `across ${itemsOnRent} items` },
-    { label: 'MOVED THIS MONTH', value: inr(movedThisMonth), sub: 'out + in combined' },
+    { label: 'ITEMS IN STOCK', value: inr(itemsInStock.length), sub: `across ${categoriesStocked} categor${categoriesStocked === 1 ? 'y' : 'ies'}` },
+    { label: 'ITEMS ON RENT', value: inr(itemsOnRent), sub: `of ${activeItems.length} items total` },
+    { label: 'ENTRIES THIS MONTH', value: inr(monthMoves.length), sub: `${monthOut} out · ${monthIn} in` },
     { label: 'LAST ENTRY', value: lastEntry ? fmt(lastEntry) : '—', sub: `${state.movements.length} entries total` },
   ];
 
