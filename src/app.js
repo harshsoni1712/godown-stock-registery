@@ -104,7 +104,7 @@ const state = {
 
   screen: 'stock',
   layout: 'cards',
-  entry: 'bulk',
+  entry: 'quick',
 
   cat: 'All',
   range: 'month',
@@ -275,6 +275,7 @@ function buildGoogleDriveTools() {
 }
 
 function setScreen(key) {
+  if ((key === 'out' || key === 'in') && state.screen !== key) state.entry = 'quick';
   state.screen = key;
   render();
 }
@@ -693,6 +694,10 @@ function buildEntryForm() {
           h('div', {}, [
             h('div', { className: 'field-label' }, type === 'OUT' ? 'QTY OUT' : 'QTY IN'),
             h('input', { id: 'quick-qty-input', type: 'number', min: '0', className: 'quick-qty-input', style: { background: tint }, value: state.quickQty, onInput: (e) => { state.quickQty = e.target.value; renderQuickSummary(); }, onKeydown: (e) => { if (e.key === 'Enter') saveQuick(type); } }),
+          ]),
+          h('div', {}, [
+            h('div', { className: 'field-label' }, 'AVAILABLE'),
+            h('div', { id: 'quick-avail-value', className: 'quick-avail-value' }, `${inr(avail(state.quickItem))} in store`),
           ]),
         ]),
         h('div', { className: 'date-row' }, [
