@@ -33,6 +33,20 @@ function errText(e) {
   try { return JSON.stringify(e); } catch { return 'Something went wrong.'; }
 }
 
+// Google's refresh token can go stale (e.g. the 7-day limit on unpublished
+// OAuth apps) — when that happens, show a plain-language prompt to
+// reconnect instead of the raw error, and drop the stale "connected" state
+// so the sidebar offers the one obvious next step.
+function handleGoogleError(e) {
+  if (errText(e).toLowerCase().includes('reconnect')) {
+    state.google.connected = false;
+    state.google.email = null;
+    pushToast('error', 'Your Google Drive connection expired. Click "Connect Google Drive" in the sidebar to reconnect — it only takes a few seconds.');
+  } else {
+    pushToast('error', errText(e));
+  }
+}
+
 const PALETTE = [
   { dot: 'oklch(0.60 0.15 285)', bg: 'oklch(0.95 0.035 285)', fg: 'oklch(0.42 0.15 285)' },
   { dot: 'oklch(0.62 0.13 60)', bg: 'oklch(0.95 0.045 70)', fg: 'oklch(0.44 0.11 60)' },
@@ -1212,7 +1226,7 @@ async function doGoogleBackup() {
     await invoke('google_backup');
     pushToast('success', 'Backup uploaded to Google Drive.');
   } catch (e) {
-    pushToast('error', errText(e));
+    handleGoogleError(e);
   }
   state.busy = false; state.busyAction = null;
   render();
@@ -1230,8 +1244,8 @@ async function openGoogleRestoreModal() {
     }
   } catch (e) {
     if (state.modal && state.modal.kind === 'drive-restore') {
-      state.modal.loading = false;
-      state.modal.error = errText(e);
+      state.modal = null;
+      handleGoogleError(e);
       render();
     }
   }
@@ -1250,7 +1264,7 @@ async function doGoogleRestore(fileId, name) {
     state.dbPath = data.dbPath;
     pushToast('success', 'Backup restored from Google Drive.');
   } catch (e) {
-    pushToast('error', errText(e));
+    handleGoogleError(e);
   }
   state.busy = false;
   render();
